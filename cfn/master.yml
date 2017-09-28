@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: reverse proxy, ELBs, IAM, and other resources
+Description: TagIT AWS Infrastructure
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -11,7 +11,6 @@ Metadata:
       - pNotifyEmail
       - pEC2KeyPairBastion
       - pEC2KeyPair
-      - pSupportsConfig
       - pAvailabilityZoneA
       - pAvailabilityZoneB
     - Label:
@@ -28,8 +27,6 @@ Metadata:
         default: Existing SSH Key for the Bastion Instance
       pEC2KeyPair:
         default: Existing SSH Key for Other Instances
-      pSupportsConfig:
-        default: Support Config
       pAvailabilityZoneA:
         default: First Availability Zone
       pAvailabilityZoneB:
@@ -73,16 +70,6 @@ Parameters:
     Description: The SSH key pair in your account to use for all other EC2 instance
       logins
     Type: AWS::EC2::KeyPair::KeyName
-  pSupportsConfig:
-    Description: 'Is AWS Config Rules already configured for this region? Use ''No''
-      if you are uncertain. AWS Config Rules is available in these regions: US East
-      (Virginia), US West (Oregon), EU West (Ireland), and EU Central (Frankfurt).
-      See AWS Config Management Console or Deployment Guide for details.'
-    AllowedValues:
-    - 'Yes'
-    - 'No'
-    Default: 'No'
-    Type: String
   pAvailabilityZoneA:
     Description: Availability Zone 1
     Type: AWS::EC2::AvailabilityZone::Name
@@ -294,10 +281,7 @@ Mappings:
       InstanceType: m4.large
       InstanceTypeDatabase: db.m4.large
 Conditions:
-  LoadConfigRulesTemplate:
-    !Equals
-    - !Ref pSupportsConfig
-    - 'Yes'
+
   LaunchAsDedicatedInstance:
     !Equals
     - !Ref pVPCTenancy
@@ -463,30 +447,7 @@ Resources:
           - QuickStartS3URL
         QSS3BucketName: !Ref QSS3BucketName
         QSS3KeyPrefix: !Ref QSS3KeyPrefix
-  ConfigRulesTemplate:
-    Type: AWS::CloudFormation::Stack
-    Condition: LoadConfigRulesTemplate
-    DependsOn:
-    - IamTemplate
-    - ProductionVpcTemplate
-    - ManagementVpcTemplate
-    - LoggingTemplate
-    Properties:
-      TemplateURL:
-        !Sub
-        - ${QuickStartS3URL}/${QSS3BucketName}/${QSS3KeyPrefix}/submodules/quickstart-compliance-common/templates/config-rules.template
-        - QuickStartS3URL:
-            !FindInMap
-            - AWSInfoRegionMap
-            - !Ref AWS::Region
-            - QuickStartS3URL
-      TimeoutInMinutes: 20
-      Parameters:
-        pRequiredTagKey:
-          !FindInMap
-          - CustomVariables
-          - vResourceEnvironmentTagKey
-          - Value
+
   ApplicationTemplate:
     Type: AWS::CloudFormation::Stack
     DependsOn: ProductionVpcTemplate
@@ -589,7 +550,7 @@ Outputs:
   TemplateType:
     Value: Standard Multi-Tier Web Application
   TemplateVersion:
-    Value: 2.0
+    Value: 1.0
   BastionIP:
     Description: Use this IP via SSH to connect to Bastion Instance
     Value:
@@ -606,7 +567,3 @@ Outputs:
       !GetAtt
       - ApplicationTemplate
       - Outputs.WebsiteURL
-  Help:
-    Description: For assistance or questions regarding this quickstart please email
-      compliance-accelerator@amazon.com
-    Value: ''

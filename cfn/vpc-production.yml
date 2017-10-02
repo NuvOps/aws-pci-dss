@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: 'Provides networking configuration for a standard, public facing application, separates private-public subnets and enforces traffic with NACL rules (qs-1nb14cqcl)'
+Description: 'Provides networking configuration for a standard, public facing application, separates private-public subnets and enforces traffic with NACL rules'
 Metadata:
     AWS::CloudFormation::Interface:
         ParameterGroups:
@@ -20,12 +20,10 @@ Metadata:
               - pAppPrivateSubnetBCIDR
               - pDBPrivateSubnetACIDR
               - pDBPrivateSubnetBCIDR
-              - pEC2KeyPair
               - pVPCTenancy
           - Label:
                 default: AWS Quick Start Configuration
             Parameters:
-              - QuickStartS3URL
               - QSS3BucketName
               - QSS3KeyPrefix
         ParameterLabels:
@@ -45,12 +43,8 @@ Metadata:
                 default: CIDR block of Database A subnet (private)
             pDBPrivateSubnetBCIDR:
                 default: CIDR block of Database B subnet (private)
-            pEC2KeyPair:
-                default: Name of existing SSH Key for NAT Instance
             pVPCTenancy:
                 default: Instance tenancy
-            QuickStartS3URL:
-                default: Quick Start URL
             QSS3BucketName:
                 default: Quick Start S3 Bucket Name
             QSS3KeyPrefix:
@@ -66,7 +60,6 @@ Metadata:
     Output:
         Description: Outputs ID of all deployed resources
 Conditions:
-    cNeedNatInstance: !Equals [ false, !Ref pSupportsNatGateway ]
     cSupportsNatGateway: !Equals [ true, !Ref pSupportsNatGateway ]
     cEnableFlowLogs: !Not [ !Equals [ !Ref pFlowLogGroup, '' ] ]
 Parameters:
@@ -115,10 +108,6 @@ Parameters:
         Description: CIDR block for Private AZ-1b subnet
         Type: String
         Default: 10.100.212.0/21
-    pEC2KeyPair:
-        Description: Name of existing EC2 key pair for production hosts
-        Type: String
-        Default: ''
     pVPCTenancy:
         Description: Instance tenancy behavior for this VPC
         Type: String
@@ -134,22 +123,10 @@ Parameters:
         Description: Specifies whether this region supports NAT Gateway (this value is determined by the main stack if it is invoked from there)
         Type: String
         Default: true
-    pNatAmi:
-        Description: AMI to use for the NAT intstance if the region does not support NAT Gateway (this value is determined by the main stack if it is invoked from there)
-        Type: String
-        Default: ''
-    pNatInstanceType:
-        Description: Instance type to use for the NAT intstance if the region does not support NAT Gateway (this value is determined by the main stack if it is invoked from there)
-        Type: String
-        Default: ''
     pFlowLogGroup:
           Description: Log Group for capturing VPC Flow Logs
           Type: String
           Default: ''
-    QuickStartS3URL:
-        Description: Quick Start S3 URL prefix.
-        Default: https://s3.amazonaws.com
-        Type: String
     QSS3BucketName:
         AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z\-\.]*[0-9a-zA-Z])*$
         ConstraintDescription: Quick Start bucket name can include numbers, lowercase
@@ -344,24 +321,6 @@ Resources:
         Properties:
             AllocationId: !GetAtt rEIPProdNatB.AllocationId
             SubnetId: !Ref rDMZSubnetB
-    rNatInstanceTemplate:
-        Type: AWS::CloudFormation::Stack
-        Condition: cNeedNatInstance
-        Properties:
-            TemplateURL: !Sub ${QuickStartS3URL}/${QSS3BucketName}/${QSS3KeyPrefix}/submodules/quickstart-compliance-common/templates/nat-instance.template
-            TimeoutInMinutes: 20
-            Parameters:
-                pDMZSubnetA: !Ref rDMZSubnetA
-                pSecurityGroupSSHFromVpc: !Ref rSecurityGroupSSHFromProd
-                pSecurityGroupVpcNat: !Ref rSecurityGroupVpcNat
-                pNatAmi: !Ref pNatAmi
-                pNatInstanceType: !Ref pNatInstanceType
-                pEC2KeyPair: !Ref pEC2KeyPair
-                pVpcId: !Ref rVPCProduction
-                pVpcName: !Ref pProductionVPCName
-                pRouteTablePrivateA: !Ref rRouteTableProdPrivateA
-                pRouteTablePrivateB: !Ref rRouteTableProdPrivateB
-                pEipNatAllocationId: !GetAtt rEIPProdNatA.AllocationId
     rRouteProdIGW:
         Type: AWS::EC2::Route
         DependsOn: rGWAttachmentProdIGW

@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: 2010-09-09
-Description: Enterprise Accelerator - Provides nesting for required stacks to deploy a full sample web application with reverse proxy, ELBs, IAM, and other resources (for demonstration/POC/testing) QS(0018)
+Description: Reverse proxy, ELBs, IAM, and other resources
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -34,11 +34,9 @@ Metadata:
           - pDBUser
           - pDBPassword
           - pDBClass
-          - pDBAllocatedStorage
       - Label:
           default: AWS Quick Start Configuration
         Parameters:
-        - QuickStartS3URL
         - QSS3BucketName
         - QSS3KeyPrefix
   Stack:
@@ -124,9 +122,6 @@ Parameters:
   pDBClass:
     Description: Instance class of RDS instance
     Type: String
-  pDBAllocatedStorage:
-    Description: Allocated Storage (in GB) for RDS instance
-    Type: String
   pEnvironment:
     Description: Environment type (development, test, or production)
     Type: String
@@ -146,10 +141,6 @@ Parameters:
     ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slash (/). It cannot start or end with forward slash (/) because they are automatically appended.
     Default: enterprise-accelerator/pci/latest
     Description: S3 key prefix for the Quick Start assets. Quick Start key prefix can include numbers, lowercase letters, uppercase letters, hyphens (-), and forward slash (/). It cannot start or end with forward slash (/) because they are automatically appended.
-    Type: String
-  QuickStartS3URL:
-    Description: Quick Start S3 URL prefix.
-    Default: https://s3.amazonaws.com
     Type: String
 Mappings:
   elbMap:
@@ -397,23 +388,41 @@ Resources:
       SubnetIds:
         - !Ref pDBPrivateSubnetA
         - !Ref pDBPrivateSubnetB
+
+# AURORA
+
+  DatabaseCluster:
+      Type: AWS::RDS::DBCluster
+      Properties:
+          DatabaseName: !Ref pDBName
+          Engine: aurora
+          StorageEncrypted: true
+          MasterUsername:
+              Ref: pDBUser
+          MasterUserPassword:
+              Ref: pDBPassword
+          BackupRetentionPeriod: 7
+          PreferredBackupWindow: 02:00-03:00
+          PreferredMaintenanceWindow: mon:03:00-mon:04:00
+          DBSubnetGroupName:
+              Ref: rDBSubnetGroup
+          VpcSecurityGroupIds:
+            - Ref: rSecurityGroupRDS
+
+
   rRDSInstanceMySQL:
     Type: AWS::RDS::DBInstance
     DependsOn:
       - rDBSubnetGroup
       - rSecurityGroupRDS
+      - DatabaseCluster
     Properties:
-      DBName: !Ref pDBName
-      Engine: MySQL
-      MultiAZ: true
-      StorageEncrypted: true
-      MasterUsername: !Ref pDBUser
-      MasterUserPassword: !Ref pDBPassword
+      Engine: aurora
+      DBClusterIdentifier: !Ref DatabaseCluster
       DBInstanceClass: !Ref pDBClass
-      AllocatedStorage: !Ref pDBAllocatedStorage
-      VPCSecurityGroups:
-        - !Ref rSecurityGroupRDS
       DBSubnetGroupName: !Ref rDBSubnetGroup
+
+  #Internal Load Balancer
   rELBApp:
     Type: AWS::ElasticLoadBalancing::LoadBalancer
     DependsOn:
@@ -448,6 +457,8 @@ Resources:
           Value: ProxyELB
         - Key: Environment
           Value: !Ref pEnvironment
+
+  # External Load Balancer
   rELBWeb:
     Type: AWS::ElasticLoadBalancing::LoadBalancer
     DependsOn:
@@ -563,8 +574,8 @@ Resources:
         - !Ref pDMZSubnetA
         - !Ref pDMZSubnetB
       LaunchConfigurationName: !Ref rAutoScalingConfigWeb
-      MinSize: 2
-      MaxSize: 4
+      MinSize: 1
+      MaxSize: 2
       LoadBalancerNames:
         - !Ref rELBWeb
       HealthCheckType: ELB
@@ -676,7 +687,7 @@ Resources:
                 define('DB_NAME', '${pDBName}');
                 define('DB_USER', '${pDBUser}');
                 define('DB_PASSWORD', '${pDBPassword}');
-                define('DB_HOST', '${rRDSInstanceMySQL.Endpoint.Address}');
+                define('DB_HOST', '${DatabaseCluster.Endpoint.Address}');
                 define('FORCE_SSL_ADMIN', true);
                 if (strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) { $_SERVER['HTTPS']='on'; }
                 define('DB_CHARSET', 'utf8');
@@ -720,10 +731,10 @@ Resources:
           ######################################################################
 
           # Download the landing page.
-          sudo wget ${QuickStartS3URL}/${QSS3BucketName}/${QSS3KeyPrefix}/assets/landing/landing.html -O $LANDING_PAGE
+          sudo wget https://s3.amazonaws.com/cfn-tagit-templates/assets/landing.html -O $LANDING_PAGE
 
           # Replace relative image links with links to the production S3 source.
-          sudo sed -i 's|images|${QuickStartS3URL}/${QSS3BucketName}/${QSS3KeyPrefix}/assets/landing/images|g' $LANDING_PAGE
+          sudo sed -i 's|images|$https://s3.amazonaws.com/cfn-tagit-templates/assets/images|g' $LANDING_PAGE
 
           # Inject the landing page branding label.
           sudo sed -i "s|{compliance-body}|$COMPLIANCE_BODY_LABEL|g" $LANDING_PAGE
@@ -732,7 +743,7 @@ Resources:
           sudo sed -i "s|{compliance-body-survey-link}|$COMPLIANCE_SURVEY_LINK|g" $LANDING_PAGE
 
           # Inject the security control matrix file location.
-          sudo sed -i "s|{compliance-body-matrix}|${QuickStartS3URL}/${QSS3BucketName}/${QSS3KeyPrefix}/assets/$COMPLIANCE_MATRIX_FILENAME|g" $LANDING_PAGE
+          sudo sed -i "s|{compliance-body-matrix}|$https://s3.amazonaws.com/cfn-tagit-templates/assets/PCI-DSS3.2-Security-Controls-Mapping.xlsx|g" $LANDING_PAGE
 
   rAutoScalingGroupApp:
     Type: AWS::AutoScaling::AutoScalingGroup
